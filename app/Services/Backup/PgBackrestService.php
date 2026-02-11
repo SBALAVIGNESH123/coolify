@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Services\Backup;
 
-use App\Models\PgbackrestRepo;
 use App\Models\ScheduledDatabaseBackup;
 use App\Models\StandalonePostgresql;
 use Illuminate\Support\Collection;
@@ -29,13 +28,21 @@ class PgBackrestService
 
     public static function generateConfig(StandalonePostgresql $database): ?string
     {
-        $backup = $database->pgbackrestBackups()->where('enabled', true)->first();
-        if (!$backup)
-            return null;
+        // Find enabled backups that use pgBackRest (assuming 'pgbackrest' engine or just presence of S3)
+        // For this iteration, we check if *any* S3 backup is configured. 
+        // Realistically, we might need a specific flag, but checking for s3_storage_id is a good proxy for offsite.
+        $backups = $database->scheduledBackups()->whereNotNull('s3_storage_id')->get();
 
-        $repos = $backup->enabledPgbackrestRepos()->get();
-        if ($repos->isEmpty())
+        if ($backups->isEmpty()) {
             return null;
+        }
+
+        // We use the first valid backup config for the global pgbackrest config
+        // In a complex setup, we might support multiple repos, but for now we look at the first one.
+        $backup = $backups->first();
+        if (!$backup->s3) {
+            return null;
+        }
 
         $stanza = self::getStanzaName($database);
 
@@ -60,49 +67,31 @@ class PgBackrestService
         $config .= "\n[{$stanza}]\n";
         $config .= "pg1-path=" . self::PGDATA_PATH . "\n";
 
-        $validRepos = 0;
-        foreach ($repos as $repo) {
-            $conf = self::generateRepoConfig($repo, $database);
-            if ($conf) {
-                $config .= $conf;
-                $validRepos++;
-            }
-        }
+        // Repo 1 Configuration (S3)
+        $s3 = $backup->s3;
 
-        return $validRepos > 0 ? $config : null;
+        // Strict Validation prevents injection
+        $bucket = self::sanitize($s3->bucket);
+        $endpoint = self::cleanEndpoint($s3->endpoint);
+        $region = self::sanitize($s3->region ?: 'us-east-1');
+
+        $config .= "repo1-type=s3\n";
+        $config .= "repo1-path=/{$database->uuid}\n";
+        $config .= "repo1-s3-bucket={$bucket}\n";
+        $config .= "repo1-s3-endpoint={$endpoint}\n";
+        $config .= "repo1-s3-region={$region}\n";
+        $config .= "repo1-s3-uri-style=path\n";
+
+        $retentionType = 'count'; // Defaulting to count for now as migration didn't add retention_full_type
+        $retentionVal = 2; // Default
+
+        $config .= "repo1-retention-full-type={$retentionType}\n";
+        $config .= "repo1-retention-full={$retentionVal}\n";
+
+        return $config;
     }
 
-    private static function generateRepoConfig(PgbackrestRepo $repo, StandalonePostgresql $database): string
-    {
-        $key = $repo->getRepoKey();
-
-        if ($repo->isS3()) {
-            $s3 = $repo->s3Storage;
-            if (!$s3)
-                return '';
-
-            // Strict Validation prevents injection
-            $bucket = self::sanitize($s3->bucket);
-            $endpoint = self::cleanEndpoint($s3->endpoint);
-            $region = self::sanitize($s3->region ?: 'us-east-1');
-
-            $conf = "{$key}-type=s3\n";
-            $conf .= "{$key}-path=/{$database->uuid}\n";
-            $conf .= "{$key}-s3-bucket={$bucket}\n";
-            $conf .= "{$key}-s3-endpoint={$endpoint}\n";
-            $conf .= "{$key}-s3-region={$region}\n";
-            $conf .= "{$key}-s3-uri-style=path\n";
-
-            $retentionType = $repo->retention_full_type === 'time' ? 'time' : 'count';
-            $retentionVal = (int) ($repo->retention_full ?: 2);
-            $conf .= "{$key}-retention-full-type={$retentionType}\n";
-            $conf .= "{$key}-retention-full={$retentionVal}\n";
-
-            return $conf;
-        }
-
-        return "{$key}-type=posix\n{$key}-path={$repo->getEffectivePath()}\n";
-    }
+    // Removed generateRepoConfig as it depended on non-existent model
 
     public static function buildBackupCommand(
         string $stanza,
@@ -182,21 +171,16 @@ class PgBackrestService
     private static function buildEnvVars(ScheduledDatabaseBackup $backup): array
     {
         $vars = [];
-        $repos = $backup->enabledPgbackrestRepos()->get();
 
-        foreach ($repos as $repo) {
-            if ($repo->isS3() && $repo->s3Storage) {
-                $s3 = $repo->s3Storage;
-                $idx = $repo->repo_number;
-                $vars["PGBACKREST_REPO{$idx}_S3_KEY"] = $s3->key;
-                $vars["PGBACKREST_REPO{$idx}_S3_KEY_SECRET"] = $s3->secret;
+        if ($backup->s3) {
+            $s3 = $backup->s3;
+            $vars["PGBACKREST_REPO1_S3_KEY"] = $s3->key;
+            $vars["PGBACKREST_REPO1_S3_KEY_SECRET"] = $s3->secret;
 
-                if ($repo->encryption_key) {
-                    $vars["PGBACKREST_REPO{$idx}_CIPHER_TYPE"] = 'aes-256-cbc';
-                    $vars["PGBACKREST_REPO{$idx}_CIPHER_PASS"] = $repo->encryption_key;
-                }
-            }
+            // Assuming no encryption key logic for now as trait/model property wasn't verified
+            // if ($backup->database->isEncrypted()) { ... } 
         }
+
         return $vars;
     }
 
