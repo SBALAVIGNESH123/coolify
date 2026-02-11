@@ -78,6 +78,15 @@ class BackupEdit extends Component
     #[Validate(['required', 'int', 'min:60', 'max:36000'])]
     public int $timeout = 3600;
 
+    #[Validate(['nullable', 'integer', 'min:1'])]
+    public int $pgbackrest_process_max = 2;
+
+    #[Validate(['nullable', 'string'])]
+    public string $pgbackrest_compress_type = 'zstd';
+
+    #[Validate(['nullable', 'integer', 'min:1', 'max:22'])]
+    public int $pgbackrest_compress_level = 3;
+
     public function mount()
     {
         try {
@@ -115,7 +124,7 @@ class BackupEdit extends Component
                         // Provide specific error message indicating which database failed validation
                         $position = $index + 1;
                         throw new \Exception(
-                            "Database #{$position} ('{$dbName}') validation failed: ".
+                            "Database #{$position} ('{$dbName}') validation failed: " .
                             $e->getMessage()
                         );
                     }
@@ -125,6 +134,9 @@ class BackupEdit extends Component
             $this->backup->databases_to_backup = $this->databasesToBackup;
             $this->backup->dump_all = $this->dumpAll;
             $this->backup->timeout = $this->timeout;
+            $this->backup->pgbackrest_process_max = $this->pgbackrest_process_max;
+            $this->backup->pgbackrest_compress_type = $this->pgbackrest_compress_type;
+            $this->backup->pgbackrest_compress_level = $this->pgbackrest_compress_level;
             $this->customValidate();
             $this->backup->save();
         } else {
@@ -143,6 +155,9 @@ class BackupEdit extends Component
             $this->databasesToBackup = $this->backup->databases_to_backup;
             $this->dumpAll = $this->backup->dump_all;
             $this->timeout = $this->backup->timeout;
+            $this->pgbackrest_process_max = $this->backup->pgbackrest_process_max ?? 2;
+            $this->pgbackrest_compress_type = $this->backup->pgbackrest_compress_type ?? 'zstd';
+            $this->pgbackrest_compress_level = $this->backup->pgbackrest_compress_level ?? 3;
         }
     }
 
@@ -150,7 +165,7 @@ class BackupEdit extends Component
     {
         $this->authorize('manageBackups', $this->backup->database);
 
-        if (! verifyPasswordConfirmation($password, $this)) {
+        if (!verifyPasswordConfirmation($password, $this)) {
             return;
         }
 
@@ -170,7 +185,7 @@ class BackupEdit extends Component
                 ->filter()
                 ->all();
 
-            if (! empty($filenames)) {
+            if (!empty($filenames)) {
                 if ($this->delete_associated_backups_locally && $server) {
                     deleteBackupsLocally($filenames, $server);
                 }
@@ -195,7 +210,7 @@ class BackupEdit extends Component
                 return redirect()->route('project.database.backup.index', $this->parameters);
             }
         } catch (\Exception $e) {
-            $this->dispatch('error', 'Failed to delete backup: '.$e->getMessage());
+            $this->dispatch('error', 'Failed to delete backup: ' . $e->getMessage());
 
             return handleError($e, $this);
         }
@@ -215,17 +230,17 @@ class BackupEdit extends Component
 
     private function customValidate()
     {
-        if (! is_numeric($this->backup->s3_storage_id)) {
+        if (!is_numeric($this->backup->s3_storage_id)) {
             $this->backup->s3_storage_id = null;
         }
 
         // Validate that disable_local_backup can only be true when S3 backup is enabled
-        if ($this->backup->disable_local_backup && ! $this->backup->save_s3) {
+        if ($this->backup->disable_local_backup && !$this->backup->save_s3) {
             $this->backup->disable_local_backup = $this->disableLocalBackup = false;
         }
 
         $isValid = validate_cron_expression($this->backup->frequency);
-        if (! $isValid) {
+        if (!$isValid) {
             throw new \Exception('Invalid Cron / Human expression');
         }
         $this->validate();

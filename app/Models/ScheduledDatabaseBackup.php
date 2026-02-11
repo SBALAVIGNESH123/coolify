@@ -9,6 +9,10 @@ use Illuminate\Database\Eloquent\Relations\MorphTo;
 class ScheduledDatabaseBackup extends BaseModel
 {
     protected $guarded = [];
+    protected $casts = [
+        'pgbackrest_process_max' => 'integer',
+        'pgbackrest_compress_level' => 'integer',
+    ];
 
     public static function ownedByCurrentTeam()
     {

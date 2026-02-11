@@ -49,7 +49,7 @@ class CreateScheduledBackup extends Component
             $this->validate();
 
             $isValid = validate_cron_expression($this->frequency);
-            if (! $isValid) {
+            if (!$isValid) {
                 $this->dispatch('error', 'Invalid Cron / Human expression.');
 
                 return;
@@ -66,6 +66,7 @@ class CreateScheduledBackup extends Component
             ];
 
             if ($this->database->type() === 'standalone-postgresql') {
+                $payload['engine'] = 'pgbackrest';
                 $payload['databases_to_backup'] = $this->database->postgres_db;
             } elseif ($this->database->type() === 'standalone-mysql') {
                 $payload['databases_to_backup'] = $this->database->mysql_database;

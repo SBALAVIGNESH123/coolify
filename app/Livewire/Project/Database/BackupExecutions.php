@@ -67,7 +67,7 @@ class BackupExecutions extends Component
 
     public function deleteBackup($executionId, $password)
     {
-        if (! verifyPasswordConfirmation($password, $this)) {
+        if (!verifyPasswordConfirmation($password, $this)) {
             return;
         }
 
@@ -95,7 +95,7 @@ class BackupExecutions extends Component
             $this->dispatch('success', 'Backup deleted.');
             $this->refreshBackupExecutions();
         } catch (\Exception $e) {
-            $this->dispatch('error', 'Failed to delete backup: '.$e->getMessage());
+            $this->dispatch('error', 'Failed to delete backup: ' . $e->getMessage());
         }
     }
 
@@ -192,6 +192,29 @@ class BackupExecutions extends Component
         }
 
         return null;
+    }
+
+    public function restore($executionId)
+    {
+        $execution = $this->backup->executions()->where('id', $executionId)->first();
+        if (is_null($execution)) {
+            $this->dispatch('error', 'Backup execution not found.');
+            return;
+        }
+
+        try {
+            $this->dispatch('info', 'Restore queued. The database will stop, likely causing a brief downtime.');
+
+            \App\Jobs\PerformPgBackrestRestore::dispatch(
+                $this->backup,
+                $execution,
+                $execution->created_at
+            );
+
+            $this->dispatch('success', 'Restore operation has been queued. Check logs for progress.');
+        } catch (\Exception $e) {
+            $this->dispatch('error', 'Failed to queue restore: ' . $e->getMessage());
+        }
     }
 
     public function render()

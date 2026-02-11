@@ -158,6 +158,13 @@
                         @if (data_get($execution, 'status') === 'success')
                             <x-forms.button class="dark:hover:bg-coolgray-400"
                                 x-on:click="download_file('{{ data_get($execution, 'id') }}')">Download</x-forms.button>
+
+                            <x-modal-confirmation title="Restore Database?" buttonTitle="Restore" isErrorButton
+                                submitAction="restore({{ data_get($execution, 'id') }})"
+                                :actions="['This will STOP the database, overwrite all data, and START it again.', 'Data created after this backup will be LOST.']"
+                                confirmationText="restore database"
+                                confirmationLabel="Please confirm by typing 'restore database' below"
+                                shortConfirmationLabel="Confirmation" />
                         @endif
                         @php
                             $executionCheckboxes = [];

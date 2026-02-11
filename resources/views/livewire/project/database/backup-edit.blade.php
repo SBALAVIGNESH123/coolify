@@ -10,10 +10,9 @@
         @if ($backup->database_id !== 0)
             <x-modal-confirmation title="Confirm Backup Schedule Deletion?" buttonTitle="Delete Backups and Schedule"
                 isErrorButton submitAction="delete" :checkboxes="$checkboxes" :actions="[
-                    'The selected backup schedule will be deleted.',
-                    'Scheduled backups for this database will be stopped (if this is the only backup schedule for this database).',
-                ]"
-                confirmationText="{{ $backup->database->name }}"
+                'The selected backup schedule will be deleted.',
+                'Scheduled backups for this database will be stopped (if this is the only backup schedule for this database).',
+            ]" confirmationText="{{ $backup->database->name }}"
                 confirmationLabel="Please confirm the execution of the actions by entering the Database Name of the scheduled backups below"
                 shortConfirmationLabel="Database Name" />
         @endif
@@ -87,6 +86,25 @@
             <x-forms.input label="Timeout" id="timeout" helper="The timeout of the backup job in seconds." />
         </div>
 
+        <div class="pt-6">
+            <h3 class="mb-2 text-lg font-medium">Advanced (pgBackRest)</h3>
+            <div class="flex gap-4">
+                <x-forms.input label="Parallel Processes" id="pgbackrest_process_max" type="number" min="1"
+                    helper="Number of parallel processes to use for compression and transfer. Recommended: CPU Cores / 2." />
+
+                <x-forms.select id="pgbackrest_compress_type" label="Compression Type">
+                    <option value="zstd">Zstandard (Recommended)</option>
+                    <option value="lz4">LZ4 (Fastest)</option>
+                    <option value="bz2">Bzip2 (Smallest)</option>
+                    <option value="gz">Gzip</option>
+                    <option value="none">None</option>
+                </x-forms.select>
+
+                <x-forms.input label="Compression Level" id="pgbackrest_compress_level" type="number" min="1" max="22"
+                    helper="Higher means smaller but slower. ZSTD default is 3." />
+            </div>
+        </div>
+
         <h3 class="mt-6 mb-2 text-lg font-medium">Backup Retention Settings</h3>
         <div class="mb-4">
             <ul class="list-disc pl-6 space-y-2">
@@ -115,14 +133,13 @@
                 <div>
                     <h4 class="mb-3 font-medium">S3 Storage Retention</h4>
                     <div class="flex gap-2">
-                        <x-forms.input label="Number of backups to keep" id="databaseBackupRetentionAmountS3"
-                            type="number" min="0"
-                            helper="Keeps only the specified number of most recent backups on S3 storage. Set to 0 for unlimited backups." />
-                        <x-forms.input label="Days to keep backups" id="databaseBackupRetentionDaysS3" type="number"
+                        <x-forms.input label="Number of backups to keep" id="databaseBackupRetentionAmountS3" type="number"
                             min="0"
+                            helper="Keeps only the specified number of most recent backups on S3 storage. Set to 0 for unlimited backups." />
+                        <x-forms.input label="Days to keep backups" id="databaseBackupRetentionDaysS3" type="number" min="0"
                             helper="Automatically removes S3 backups older than the specified number of days. Set to 0 for no time limit." />
-                        <x-forms.input label="Maximum storage (GB)" id="databaseBackupRetentionMaxStorageS3"
-                            type="number" min="0"
+                        <x-forms.input label="Maximum storage (GB)" id="databaseBackupRetentionMaxStorageS3" type="number"
+                            min="0"
                             helper="When total size of all backups in the current backup job exceeds this limit in GB, the oldest backups will be removed. Decimal values are supported (e.g. 0.5 for 500MB). Set to 0 for unlimited storage." />
                     </div>
                 </div>
