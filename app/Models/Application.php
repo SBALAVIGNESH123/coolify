@@ -502,6 +502,11 @@ class Application extends BaseModel
         return $this->morphMany(LocalFileVolume::class, 'resource');
     }
 
+    public function serviceDatabases()
+    {
+        return $this->hasMany(\App\Models\ServiceDatabase::class);
+    }
+
     public function type()
     {
         return 'application';

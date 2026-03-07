@@ -2479,7 +2479,8 @@ function parseDockerComposeFile(Service|Application $resource, bool $isNew = fal
         if ($pull_request_id !== 0) {
             $definedNetwork = collect(["{$resource->uuid}-$pull_request_id"]);
         }
-        $services = collect($services)->map(function ($service, $serviceName) use ($topLevelVolumes, $topLevelNetworks, $definedNetwork, $isNew, $generatedServiceFQDNS, $resource, $server, $pull_request_id, $preview_id) {
+        $detectedApplicationDatabases = collect([]);
+        $services = collect($services)->map(function ($service, $serviceName) use ($topLevelVolumes, $topLevelNetworks, $definedNetwork, $isNew, $generatedServiceFQDNS, $resource, $server, $pull_request_id, $preview_id, &$detectedApplicationDatabases) {
             $serviceVolumes = collect(data_get($service, 'volumes', []));
             $servicePorts = collect(data_get($service, 'ports', []));
             $serviceNetworks = collect(data_get($service, 'networks', []));
@@ -2782,6 +2783,14 @@ function parseDockerComposeFile(Service|Application $resource, bool $isNew = fal
             $image = data_get_str($service, 'image');
             $isDatabase = isDatabaseImage($image, $service);
             data_set($service, 'is_database', $isDatabase);
+
+            if ($isDatabase && $resource instanceof \App\Models\Application) {
+                $dbRecord = \App\Models\ServiceDatabase::updateOrCreate(
+                    ['name' => $serviceName, 'application_id' => $resource->id],
+                    ['image' => data_get($service, 'image', 'unknown')]
+                );
+                $detectedApplicationDatabases->push($dbRecord->id);
+            }
 
             // Collect/create/update networks
             if ($serviceNetworks->count() > 0) {
@@ -3178,6 +3187,12 @@ function parseDockerComposeFile(Service|Application $resource, bool $isNew = fal
         data_forget($resource, 'environment_variables');
         data_forget($resource, 'environment_variables_preview');
         $resource->save();
+
+        if ($resource instanceof \App\Models\Application && $detectedApplicationDatabases->isNotEmpty()) {
+            \App\Models\ServiceDatabase::where('application_id', $resource->id)
+                ->whereNotIn('id', $detectedApplicationDatabases->toArray())
+                ->delete();
+        }
 
         return collect($finalServices);
     }

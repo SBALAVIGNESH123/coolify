@@ -12,6 +12,8 @@ use App\Models\StandaloneMariadb;
 use App\Models\StandaloneMongodb;
 use App\Models\StandaloneMysql;
 use App\Models\StandalonePostgresql;
+use App\Models\ApplicationDeploymentQueue;
+use App\Enums\ApplicationDeploymentStatus;
 use App\Models\Team;
 use App\Notifications\Database\BackupFailed;
 use App\Notifications\Database\BackupSuccess;
@@ -93,7 +95,11 @@ class DatabaseBackupJob implements ShouldBeEncrypted, ShouldQueue
             }
             if (data_get($this->backup, 'database_type') === \App\Models\ServiceDatabase::class) {
                 $this->database = data_get($this->backup, 'database');
-                $this->server = $this->database->service->server;
+                if ($this->database && $this->database->application_id) {
+                    $this->server = $this->database->application->destination->server;
+                } elseif ($this->database) {
+                    $this->server = $this->database->service->server;
+                }
                 $this->s3 = $this->backup->s3;
             } else {
                 $this->database = data_get($this->backup, 'database');
@@ -120,9 +126,24 @@ class DatabaseBackupJob implements ShouldBeEncrypted, ShouldQueue
                 return;
             }
             if (data_get($this->backup, 'database_type') === \App\Models\ServiceDatabase::class) {
+                if ($this->database instanceof ServiceDatabase && $this->database->application_id) {
+                    $deploymentInProgress = ApplicationDeploymentQueue::where('application_id', $this->database->application_id)
+                        ->where('status', ApplicationDeploymentStatus::IN_PROGRESS->value)
+                        ->exists();
+                    if ($deploymentInProgress) {
+                        if ($this->attempts() >= 10) {
+                            throw new \RuntimeException('Backup aborted: deployment has been in progress for too long.');
+                        }
+                        $this->release(30);
+
+                        return;
+                    }
+                }
                 $databaseType = $this->database->databaseType();
-                $serviceUuid = $this->database->service->uuid;
-                $serviceName = str($this->database->service->name)->slug();
+                $serviceUuid = $this->database->getParentUuid();
+                $serviceName = $this->database->service
+                    ? str($this->database->service->name)->slug()
+                    : str($this->database->application->name)->slug();
                 if (str($databaseType)->contains('postgres')) {
                     $this->container_name = "{$this->database->name}-$serviceUuid";
                     $this->directory_name = $serviceName.'-'.$this->container_name;
@@ -636,7 +657,11 @@ class DatabaseBackupJob implements ShouldBeEncrypted, ShouldQueue
             $endpoint = $this->s3->endpoint;
             $this->s3->testConnection(shouldSave: true);
             if (data_get($this->backup, 'database_type') === \App\Models\ServiceDatabase::class) {
-                $network = $this->database->service->destination->network;
+                if ($this->database->application_id) {
+                    $network = $this->database->application->destination->network;
+                } else {
+                    $network = $this->database->service->destination->network;
+                }
             } else {
                 $network = $this->database->destination->network;
             }
